@@ -19,7 +19,7 @@ function ymd(d: Date): string {
 }
 
 function employeeLabel(e: EmployeeRow): string {
-  return `${e.lastName.toUpperCase()} - ${e.firstName}`;
+  return `${e.lastName.toUpperCase()} ${e.firstName}`;
 }
 
 function breakPretty(mins?: number) {

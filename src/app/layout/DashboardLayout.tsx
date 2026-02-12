@@ -28,11 +28,17 @@ function formatWeekStartingSunday(sunday: Date): string {
   return `${weekday} ${dayStr} ${monthYear}`;
 }
 
+function greetingLabel(nameUpper: string) {
+  const h = new Date().getHours();
+  const greet = h < 12 ? "Good Morning" : h < 17 ? "Good Afternoon" : "Good Evening";
+  return `${greet}, ${nameUpper}!`;
+}
+
 export function DashboardLayout() {
   const [baseDate, setBaseDate] = useState<Date>(new Date());
 
   const navigate = useNavigate();
-  const { signOut } = useAuth();
+  const { signOut, displayName } = useAuth();
 
   const weekStartSunday = useMemo(() => getSunday(baseDate), [baseDate]);
   const days = useMemo(() => getWeekDays(baseDate), [baseDate]);
@@ -79,26 +85,33 @@ export function DashboardLayout() {
         </div>
 
         {/* Right: Controls */}
-        <div className="min-w-[380px] hidden md:flex justify-end items-center gap-3">
-          {/* ✅ Sign out (glass-style) */}
-            <button
-              className={[
-                "px-3 py-1.5 rounded-md text-sm font-semibold",
-                "border border-red-400/35 bg-red-500/10 text-red-200",
-                "hover:bg-red-500/15 shadow-[0_0_18px_rgba(239,68,68,0.12)]",
-                "backdrop-blur-xl transition-colors",
-              ].join(" ")}
-              onClick={onSignOut}
-              title="Sign out"
-            >
-              SIGN OUT
-            </button>
+        <div className="min-w-[520px] hidden md:flex justify-end items-center gap-3">
+          {/* ✅ Greeting (glow) */}
+          {displayName ? (
+            <div className="mr-1 text-sm font-extrabold tracking-wide text-amber-100 drop-shadow-[0_0_18px_rgba(251,191,36,0.22)]">
+              {greetingLabel(displayName)}
+            </div>
+          ) : null}
+
+          {/* ✅ Sign out (delete-button glass) */}
+          <button
+            className={[
+              "px-3 py-1.5 rounded-md text-sm font-semibold",
+              "border border-red-400/35 bg-red-500/10 text-red-200",
+              "hover:bg-red-500/15 shadow-[0_0_18px_rgba(239,68,68,0.12)]",
+              "backdrop-blur-xl transition-colors",
+            ].join(" ")}
+            onClick={onSignOut}
+            title="Sign out"
+          >
+            SIGN OUT
+          </button>
 
           <button
             className="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-sm"
             onClick={goPrevWeek}
           >
-            ◀ {/* Last Week */}
+            ◀
           </button>
 
           <button
@@ -112,7 +125,7 @@ export function DashboardLayout() {
             className="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-sm"
             onClick={goNextWeek}
           >
-            ▶ {/* Next Week */}
+            ▶
           </button>
 
           {/* Premium calendar popover */}
