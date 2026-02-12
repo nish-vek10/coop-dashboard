@@ -1,0 +1,20 @@
+/* Drop Switzer .woff2 files into: public/fonts/
+   - Switzer-Regular.woff2
+   - Switzer-Semibold.woff2
+*/
+
+@font-face {
+  font-family: "Switzer";
+  src: url("/fonts/Switzer-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Switzer";
+  src: url("/fonts/Switzer-Semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
