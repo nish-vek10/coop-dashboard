@@ -1,35 +1,234 @@
 # 🛒 CO-OP Weekly Rota Dashboard
 
-A modern, glass-themed weekly rota management system built for Co-Op Retail Express managers.
+A secure, glass-themed weekly rota management system built for Co-Op Retail Express managers.
 
-This dashboard allows managers to:
+This project evolved from a simple rota grid into a production-ready, multi-user, secure web application powered by Supabase and deployed on Netlify.
 
-- View weekly employee schedules (Sunday → Saturday)
-- Add / Edit / Delete employees
-- Toggle Active / Inactive employees
-- Add / Edit / Delete shifts via modal
-- Automatically calculate weekly paid hours (excluding break)
-- Navigate weeks via arrows + premium calendar popover
-- Search employees instantly
-- Maintain clean alphabetical ordering by SURNAME
-- View contracted vs actual weekly hours
-- Experience a modern glass UI with depth and gradient effects
+**Live Deployment:**
+👉 https://coop-rota.netlify.app/
+
+---
+
+# 📖 Project Story
+
+The goal was simple:
+
+Build a clean, modern weekly rota dashboard for retail managers.
+
+But the vision expanded into:
+
+- Secure multi-user isolation
+- Production-grade authentication
+- Automatic inactivity logout
+- Professional UI/UX
+- Glass-themed design system
+- SaaS-ready architecture
+
+This README documents the **final production state** of the project.
 
 ---
 
 # 🚀 Tech Stack
 
-- **React 18**
-- **TypeScript**
-- **Vite**
-- **TailwindCSS**
-- **Supabase (PostgreSQL + REST API)**
-- Custom date & time utilities
-- Glass UI with backdrop blur & gradient overlays
+Frontend:
+- React 18
+- TypeScript
+- Vite
+- TailwindCSS
+
+Backend:
+- Supabase (PostgreSQL)
+- Supabase Auth
+- Row Level Security (RLS)
+
+Deployment:
+- Netlify
+- GitHub CI integration
 
 ---
 
-# 📁 Project Structure
+
+# 🔐 Security Architecture (Production Ready)
+
+This application is fully secured.
+
+## 1️⃣ Authentication
+
+- Email + Password login
+- Email confirmation required
+- Protected routes via `RequireAuth`
+- Automatic session restore
+- Proper logout handling
+
+## 2️⃣ Owner-Based Data Isolation
+
+Both tables include:
+
+`owner_id uuid`
+
+
+All data access is restricted using Supabase RLS:
+
+`owner_id = auth.uid()`
+
+
+This guarantees:
+
+- Each manager sees only their own employees
+- Each manager sees only their own shifts
+- Zero cross-account data exposure
+
+## 3️⃣ Inactivity Auto Logout System
+
+Security enhancement implemented:
+
+- Idle timer starts when user is logged in
+- After inactivity threshold → modal appears:
+  - “Are you still here?”
+  - Countdown timer
+- User can:
+  - Return (continue session)
+  - Log Out
+- If countdown reaches 0 → automatic logout
+- Closing tab = session ends
+- Timers fully cleared on logout
+
+This prevents session exposure on shared devices.
+
+---
+
+## 4️⃣ ShiftModal
+
+### **Features:**
+
+- Start & End input 
+- Break input (0–120 mins)
+- Auto format time typing:
+  - `900 → 09:00`
+  - `915 → 09:15`
+  - `1330 → 13:30`
+- Snaps to 15-minute increments 
+- Break defaults to 0 if blank 
+- Displays:
+  - `NO BREAK` if 0
+  - `BREAK = 30 mins` if > 0
+- Modal UX:
+  - Click outside to close 
+  - ESC closes 
+  - Clear shift option 
+  - Validation for invalid times
+
+---
+
+# 🧠 Core Features
+
+## Employee Management
+
+- Add employee
+- Edit employee
+- Delete employee
+- Active / Inactive toggle
+- Alphabetical A–Z by surname
+- Surname in FULL CAPS
+- First name Title Case
+- Live search filtering
+
+## Shift Management
+
+- One shift per employee per day
+- Upsert model (no duplicates)
+- Break minutes validation
+- 15-minute snapping
+- Cross-midnight support
+- Weekly paid hours auto-calculated
+
+## Calculations - Weekly Total
+
+```
+shiftPaidMinutes(shift)
+```
+
+- Converts HH:MM → minutes 
+- Subtracts break 
+- Aggregates across current week
+
+## Weekly Navigation
+
+- Sunday → Saturday model
+- Previous week
+- Next week
+- Jump to this week
+- Premium calendar popover
+
+## UI / UX
+
+- Glass theme
+- Depth layers
+- Cyan & Fuchsia glow system
+- Sticky header grid
+- Scroll container optimisation
+- Professional modal system
+- Responsive layout (desktop-first)
+
+---
+
+# 👋 Greeting System
+
+Upon login, header displays:
+
+- Good Morning NAME
+- Good Afternoon NAME
+- Good Evening NAME
+
+Rules:
+- Before 12pm → Morning
+- 12pm–5pm → Afternoon
+- After 5pm → Evening
+- First name auto-extracted from user metadata
+- Displayed in uppercase
+- Subtle glow effect applied
+
+---
+
+# 🗂 Database Schema
+
+Schema: `coop`
+
+## employees
+
+| Column | Type |
+|--------|------|
+| id | uuid (PK) |
+| owner_id | uuid |
+| first_name | text |
+| last_name | text |
+| contracted_minutes | integer |
+| is_active | boolean |
+| created_at | timestamptz |
+
+## shifts
+
+| Column | Type |
+|--------|------|
+| id | uuid (PK) |
+| owner_id | uuid |
+| employee_id | uuid |
+| shift_date | date |
+| start_time | text |
+| end_time | text |
+| break_minutes | integer |
+| created_at | timestamptz |
+| updated_at | timestamptz |
+
+Constraint:
+- One shift per employee per day
+
+---
+
+# 🏗 Folder Structure
+
+---
+
 
 ```
 Co-op_WeeklyRota-Dashboard/
@@ -39,8 +238,14 @@ Co-op_WeeklyRota-Dashboard/
 ├── src/
 │ │
 │ ├── app/
-│ │ └── layout/
-│ │ └── DashboardLayout.tsx
+│ │ ├── auth/
+│ │ ├── AuthProvider.tsx
+│ │ ├── RequireAuth.tsx
+│ │ ├── LoginPage.tsx
+│ │ └── RegisterPage.tsx
+│ │
+│ │ ├── layout/
+│ │   └── DashboardLayout.tsx
 │ │
 │ ├── components/
 │ │ ├── common/
@@ -74,103 +279,6 @@ Co-op_WeeklyRota-Dashboard/
 └── README.md
 ```
 
-
----
-
-# 🧠 Core Architecture
-
-## 1️⃣ DashboardLayout
-
-Handles:
-- Current week logic
-- Week navigation (prev / next / this week)
-- Calendar popover
-- Gradient background
-- Glass header
-- Passing week days into `RotaGrid`
-
-### Week Logic
-- Uses `getSunday(baseDate)` to determine week start
-- Uses `getWeekDays(baseDate)` to generate Sunday → Saturday array
-
----
-
-## 2️⃣ RotaGrid
-
-Handles:
-
-### Employee Management
-
-- Fetch employees from `coop.employees`
-- Add employee (Supabase insert)
-- Edit employee (Supabase update)
-- Delete employee (Supabase delete)
-- Active / Inactive toggle (live persisted to DB)
-- Default new employees = Active
-- Surname-first display format:
-
-```yaml
-SURNAME
-FirstName
-```
-
----
-
-### Shift Management
-
-- Fetch shifts for visible week
-- Upsert shift (1 per employee per day)
-- Delete shift
-- Hydrate frontend week state
-- Cross-midnight shift support
-- Break capped (0–120 minutes)
-- 15-minute snapping
-- Validation for invalid time ranges
-
----
-
-### Sticky Header System
-
-- Scrollable grid container
-- Sticky column header row
-- Optimized for 50+ employees
-- Uniform shift column widths (no distortion)
-
----
-
-### Data Persistence Model
-
-Employees and shifts are fully database-driven.
-
-### Database Tables
-
-#### `coop.employees`
-
-| Column | Type |
-|--------|------|
-| id | uuid (PK) |
-| first_name | text |
-| last_name | text |
-| contracted_minutes | integer |
-| is_active | boolean |
-| created_at | timestamptz |
-
-#### `coop.shifts`
-
-| Column | Type |
-|--------|------|
-| id | uuid (PK) |
-| employee_id | uuid (FK → employees.id) |
-| shift_date | date |
-| start_time | text ("HH:MM") |
-| end_time | text ("HH:MM") |
-| break_minutes | integer |
-| created_at | timestamptz |
-| updated_at | timestamptz |
-
-Constraint:
-- One shift per employee per day
-
 ---
 
 ### State Structure (Frontend)
@@ -189,229 +297,6 @@ type Shift = {
 }
 ```
 
----
-
-## 3️⃣ ShiftModal
-
-### **Features:**
-
-- Start & End input 
-- Break input (0–120 mins)
-- Auto format time typing:
-  - `900 → 09:00`
-  - `915 → 09:15`
-  - `1330 → 13:30`
-- Snaps to 15-minute increments 
-- Break defaults to 0 if blank 
-- Displays:
-  - `NO BREAK` if 0
-  - `BREAK = 30 mins` if > 0
-- Modal UX:
-  - Click outside to close 
-  - ESC closes 
-  - Clear shift option 
-  - Validation for invalid times
-
----
-
-# 🎨 Design System
-
-## Glass UI
-- `bg-white/5`
-- `backdrop-blur-xl`
-- `border-white/10`
-- Glow layers using blurred radial gradients 
-- Shadow depth for floating effect
-
-## Background
-- Two-tone gradient:
-```
-from-[#0B1430]
-via-[#070B18]
-to-[#1A0B2E]
-```
-
-- With:
-
-  - Cyan glow top-left 
-  - Fuchsia glow bottom-right 
-  - Subtle radial grid texture overlay
-
-## Employee LIVE Badge
-
-- Emerald tint 
-- Soft glow 
-- Inline beside employee name 
-- Compact row height
-
----
-
-# 🧮 Calculations
-
-## Weekly Total
-
-```
-shiftPaidMinutes(shift)
-```
-
-- Converts HH:MM → minutes 
-- Subtracts break 
-- Aggregates across current week
-
----
-
-# 📱 Responsive Behaviour
-
-Desktop:
-- Full grid 
-- Glass table 
-- Hover +Add indicator 
-- Modal interactions
-
-Mobile:
-
-- Employee cards 
-- Grid of days (2 per row)
-- Functional but refinement deferred
-
----
-
-# ✅ Completed Features
-
-### Core System
-- ✔ Week navigation (prev / next / this week)
-- ✔ Premium calendar popover (month/year navigation)
-- ✔ Sunday → Saturday week model
-- ✔ Alphabetical employee sorting
-- ✔ Sticky table header 
-- ✔ Scroll container optimization 
-- ✔ Search bar (centered)
-- ✔ Uniform column sizing
-- ✔ Employee row selection with deselect-on-empty-click
-- ✔ Edit/Delete buttons auto-disable when nothing selected
-
-### Employee Management (Database Driven)
-- ✔ Add employee 
-- ✔ Edit employee 
-- ✔ Delete employee 
-- ✔ Active / Inactive toggle 
-- ✔ Default Active on creation 
-- ✔ A–Z by surname 
-- ✔ Auto-format names:
-  - First name = Title Case 
-  - Surname = FULL CAPS 
-- ✔ Surname-first display format 
-- ✔ Instant search filtering
-
-### Shift Management (Database Driven)
-- ✔ Save shift (upsert)
-- ✔ Delete shift 
-- ✔ Auto week reload 
-- ✔ One shift per day constraint 
-- ✔ 15-min snapping 
-- ✔ Break validation 
-- ✔ Cross-midnight support 
-- ✔ Weekly totals calculation
-
-### Calculations
-- ✔ Weekly paid hours (live computed)
-- ✔ Break deducted automatically
-- ✔ Contracted vs actual weekly comparison
-
-### UI / UX
-- ✔ Glass UI theme
-- ✔ Gradient background + depth layers
-- ✔ Emerald LIVE badge
-- ✔ Weekend column tint
-- ✔ Hover "+ Add" indicator
-- ✔ Improved delete confirmation modal
-
----
-
-# 🔐 Next Phase (Stage 4)
-
-## 🔒 Authentication + Proper RLS
-
-The current system is fully database-connected but **not yet user-isolated**.
-
-Next stage focuses on securing the application for production use.
-
----
-
-## 1️⃣ Supabase Auth Integration
-
-- Email / Password login
-- Register page
-- Session persistence
-- Protected dashboard route
-- Automatic session restore on refresh
-
----
-
-## 2️⃣ Owner Isolation
-
-Add `owner_id` to:
-
-- `employees`
-- `shifts`
-
-Enforce: `owner_id = auth.uid()`
-
-
-Enable:
-
-- Row Level Security (RLS)
-- Per-user data access policies
-
----
-
-### 🎯 This Enables
-
-- Multi-store capability  
-- Private data per manager  
-- Secure production deployment  
-- True SaaS-ready architecture  
-
----
-
-# 🏗 Production Roadmap
-
-## Phase 1 — Auth & Security
-
-- Supabase Auth
-- RLS enforcement
-- Route protection
-- Remove public policies
-- Login page 
-- Register page 
-- Human verification (Turnstile / reCAPTCHA)
-- Remember Me token storage 
-- Session management
-
-## Phase 2 — UX Enhancements
-
-- Toast notifications
-- Loading skeletons
-- Soft LIVE pulse animation
-- Improved mobile layout
-- Error handling refinement
-
-## Phase 3 — Operational Features
-
-- CSV export (weekly rota)
-- Weekly summary print mode
-- Role-based access (Assistant Manager / Viewer)
-- Store-level configuration
-
-## Phase 4 — Deployment
-
-- `.env` environment variables
-- Secure Supabase keys
-- Netlify deployment
-- Custom domain
-- HTTPS enforced
-- Production build optimisation
-
 --- 
 
 # 📦 Running Locally
@@ -429,16 +314,83 @@ http://localhost:5173
 
 ---
 
+# 🌐 Deployment (Netlify)
+
+Environment variables required:
+
+```
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+```
+
+Supabase settings required:
+
+Authentication → URL Configuration:
+
+- Site URL = Netlify domain
+- Redirect URLs include:
+  - http://localhost:5173/*
+  - https://your-netlify-domain/*
+
+---
+
+# 📈 Production Status
+
+Current State: ✅ LIVE
+
+- Auth secured
+- RLS enforced
+- Session protection implemented
+- Inactivity logout active
+- Multi-user isolation confirmed
+- GitHub integrated
+- Netlify auto-deploy enabled
+
+---
+
+# 🎯 Future Enhancements
+
+Potential expansion:
+
+- CSV export
+- Print-ready rota mode
+- Store profile settings
+- Role-based access (Manager / Viewer)
+- Audit logs
+- Multi-store SaaS expansion
+- Shift templates
+- Email rota distribution
+
+---
+
 # 🧭 Design Philosophy
 
-This dashboard follows:
+This system was built with:
 
-- Minimal noise 
-- Clean glass UI 
-- Clear hierarchy 
-- Professional retail management feel 
-- Speed over clutter 
-- Desktop-first build strategy
+- Clarity over clutter
+- Security first
+- Desktop-first retail workflow
+- Glass UI depth & polish
+- Performance and scalability in mind
+- SaaS-ready architecture from foundation
+
+---
+
+# 🏁 Final Notes
+
+This is no longer just a rota grid.
+
+It is a secure, production-grade rota management system suitable for:
+
+- Retail managers
+- Small store chains
+- Multi-location teams
+- SaaS expansion model
+
+Built cleanly.
+Structured properly.
+Secured correctly.
+Deployable confidently.
 
 ---
 

@@ -137,8 +137,13 @@ export function RotaGrid({ days }: Props) {
         };
       }) ?? [];
 
-    // ✅ A–Z by surname (surname-first label)
-    mapped.sort((a, b) => employeeLabel(a).localeCompare(employeeLabel(b)));
+    // ✅ Sort: Active first, then A–Z within each group (surname-first label)
+    mapped.sort((a, b) => {
+      const aRank = a.isActive ? 0 : 1;
+      const bRank = b.isActive ? 0 : 1;
+      if (aRank !== bRank) return aRank - bRank;
+      return employeeLabel(a).localeCompare(employeeLabel(b));
+    });
 
     setEmployees(mapped);
     setLoadingEmployees(false);
