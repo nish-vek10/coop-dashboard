@@ -1,6 +1,8 @@
 // src/app/layout/DashboardLayout.tsx
 
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
 import { RotaGrid } from "../../components/dashboard/RotaGrid";
 import { CalendarPopover } from "../../components/common/CalendarPopover";
 import { getWeekDays, getSunday } from "../../lib/date/week";
@@ -29,6 +31,9 @@ function formatWeekStartingSunday(sunday: Date): string {
 export function DashboardLayout() {
   const [baseDate, setBaseDate] = useState<Date>(new Date());
 
+  const navigate = useNavigate();
+  const { signOut } = useAuth();
+
   const weekStartSunday = useMemo(() => getSunday(baseDate), [baseDate]);
   const days = useMemo(() => getWeekDays(baseDate), [baseDate]);
 
@@ -40,6 +45,11 @@ export function DashboardLayout() {
   }
   function goThisWeek() {
     setBaseDate(new Date());
+  }
+
+  async function onSignOut() {
+    await signOut();
+    navigate("/login", { replace: true });
   }
 
   return (
@@ -60,13 +70,30 @@ export function DashboardLayout() {
 
         {/* Center: Week Starting */}
         <div className="flex-1 flex justify-center">
-          <div className="text-sm font-semibold text-slate-300">
-            WEEK STARTING ➢ {formatWeekStartingSunday(weekStartSunday)}
+          <div className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+            <span>WEEK STARTING ➢</span>
+            <span className="text-base font-extrabold tracking-wide text-slate-100">
+              {formatWeekStartingSunday(weekStartSunday).toUpperCase()}
+            </span>
           </div>
         </div>
 
         {/* Right: Controls */}
         <div className="min-w-[380px] hidden md:flex justify-end items-center gap-3">
+          {/* ✅ Sign out (glass-style) */}
+            <button
+              className={[
+                "px-3 py-1.5 rounded-md text-sm font-semibold",
+                "border border-red-400/35 bg-red-500/10 text-red-200",
+                "hover:bg-red-500/15 shadow-[0_0_18px_rgba(239,68,68,0.12)]",
+                "backdrop-blur-xl transition-colors",
+              ].join(" ")}
+              onClick={onSignOut}
+              title="Sign out"
+            >
+              SIGN OUT
+            </button>
+
           <button
             className="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-sm"
             onClick={goPrevWeek}

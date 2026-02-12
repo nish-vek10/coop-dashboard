@@ -1,3 +1,5 @@
+// src/lib/date/week.ts
+
 export function getSunday(date: Date): Date {
   const d = new Date(date);
   const day = d.getDay(); // 0 = Sunday
