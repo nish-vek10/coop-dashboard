@@ -1,304 +1,257 @@
-# 🛒 CO-OP Weekly Rota Dashboard
+# 🗓 Weekly Rota & Payroll Dashboard
 
-A modern, glass-themed weekly rota management system built for Co-Op Retail Express managers.
+A modern, single-user rota and payroll tracker. Add employees with their agreed hourly
+pay rate, key in shift start/end times across the week, and the dashboard automatically
+works out what everyone has earned — per shift, per employee, and as a total weekly
+payout — with a one-click Excel export.
 
-This dashboard allows managers to:
-- View weekly employee schedules (Sunday → Saturday)
-- Add/edit/delete shifts via modal
-- Automatically calculate weekly paid hours (excluding break)
-- Navigate weeks via arrows + premium calendar popover
-- Maintain clean alphabetical employee ordering
-- View contracted vs actual weekly hours
-- Experience a modern glass UI with depth and gradient effects
+No login, no sessions, no auto-logout: this is built to be run by one manager, so all
+of that overhead has been stripped out.
 
 ---
 
-# 🚀 Tech Stack
+## Table of Contents
 
-- **React 18**
-- **TypeScript**
-- **Vite**
-- **TailwindCSS**
-- Custom date & time utilities
-- Glass UI with backdrop blur & gradient overlays
+- [What It Does](#what-it-does)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Data Model](#data-model)
+- [Supabase Schema and Migration](#supabase-schema-and-migration)
+- [Running Locally](#running-locally)
+- [Testing Checklist](#testing-checklist)
+- [Deploying to Netlify](#deploying-to-netlify)
+- [Design Notes](#design-notes)
+- [Explicitly Removed Features](#explicitly-removed-features)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
-# 📁 Project Structure
+## What It Does
+
+- Add / edit / delete employees — just **First name**, **Last name**, and their
+  **agreed pay rate (£ per hour)**.
+- Log shifts per employee, per day — **Start** and **End** time only (no break field).
+- Every shift cell shows the hours worked and what was earned, calculated live as
+  `(end − start) in hours × agreed pay rate`.
+  e.g. £5/hr, 08:00–14:00 → **£30.00**.
+- Each employee row totals their **hours** and **pay** for the visible week.
+- When more than one employee is on the rota, a **Weekly Payout** row/card sums pay
+  across everyone for that week.
+- **Export to Excel** — one click produces a clean, formatted `.xlsx` of the visible
+  week (employee, pay rate, daily shifts + earnings, weekly totals, grand payout).
+- Full **desktop table** and **mobile card** layouts — same data, laid out properly
+  for the screen size.
+- Week navigation: ◀ / ▶ / This Week / calendar jump-to-date popover.
+
+[⬆ back to top](#table-of-contents)
+
+---
+
+## Tech Stack
+
+- React 19 + TypeScript + Vite
+- TailwindCSS (glass UI, gradient background, dark theme)
+- Supabase (Postgres) for persistence — no auth, single anon-key client
+- `xlsx-js-style` for styled Excel export (client-side, no backend needed)
+
+[⬆ back to top](#table-of-contents)
+
+---
+
+## Project Structure
 
 ```
 Co-op_WeeklyRota-Dashboard/
-│
-├── public/
-│
+├── supabase/
+│   └── migration.sql            # Run once in Supabase SQL editor (see below)
 ├── src/
-│ │
-│ ├── app/
-│ │ └── layout/
-│ │ └── DashboardLayout.tsx
-│ │
-│ ├── components/
-│ │ ├── common/
-│ │ │ └── CalendarPopover.tsx
-│ │ │
-│ │ └── dashboard/
-│ │ ├── RotaGrid.tsx
-│ │ └── ShiftModal.tsx
-│ │
-│ ├── lib/
-│ │ ├── date/
-│ │ │ └── week.ts
-│ │ │
-│ │ └── time/
-│ │ ├── shiftCalc.ts
-│ │ └── time.ts
-│ │
-│ ├── types/
-│ │ └── rota.ts
-│ │
-│ ├── main.tsx
-│ └── index.css
-│
+│   ├── app/
+│   │   └── layout/
+│   │       └── DashboardLayout.tsx   # Header, week nav, page shell
+│   ├── components/
+│   │   ├── common/
+│   │   │   └── CalendarPopover.tsx   # Jump-to-week date picker
+│   │   └── dashboard/
+│   │       ├── RotaGrid.tsx          # Main table/cards, totals, export button
+│   │       ├── EmployeeModal.tsx     # Add/Edit employee (name + pay rate)
+│   │       └── ShiftModal.tsx        # Add/Edit shift (start/end + live earnings)
+│   ├── lib/
+│   │   ├── date/week.ts              # Week/Sunday-start date helpers
+│   │   ├── time/
+│   │   │   ├── shiftCalc.ts          # shiftMinutes / shiftHours / shiftPay
+│   │   │   └── time.ts               # Formatting: HH:MM, hours label, £ currency
+│   │   ├── export/exportRota.ts      # Builds + downloads the .xlsx export
+│   │   └── supabase/client.ts        # Supabase client (anon key only)
+│   ├── types/rota.ts                 # Employee / Shift / WeekRota types
+│   └── main.tsx
 ├── tailwind.config.js
-├── postcss.config.js
 ├── package.json
 └── README.md
 ```
 
+[⬆ back to top](#table-of-contents)
 
 ---
 
-# 🧠 Core Architecture
-
-## 1️⃣ DashboardLayout
-
-Handles:
-- Current week logic
-- Week navigation (prev / next / this week)
-- Calendar popover
-- Gradient background
-- Glass header
-- Passing week days into `RotaGrid`
-
-### Week Logic
-- Uses `getSunday(baseDate)` to determine week start
-- Uses `getWeekDays(baseDate)` to generate Sunday → Saturday array
-
----
-
-## 2️⃣ RotaGrid
-
-Handles:
-- Employees (sorted A–Z)
-- Weekly rota state (`WeekRota`)
-- Modal state
-- Weekly totals calculation
-- Desktop + mobile layouts
-
-### State Structure
+## Data Model
 
 ```ts
-type WeekRota = {
-  [employeeId: string]: {
-    [dateKey: string]: Shift
-  }
-}
+type Employee = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  payRate: number; // £ per hour, agreed rate keyed in on Add Employee
+};
 
 type Shift = {
-  start: string;     // "09:00"
-  end: string;       // "17:00"
-  breakMins?: number // 0-120 in 15min steps
-}
+  start?: string; // "HH:MM"
+  end?: string;   // "HH:MM"
+};
+
+type WeekRota = {
+  [employeeId: string]: {
+    [dateKey: string /* YYYY-MM-DD */]: Shift;
+  };
+};
 ```
+
+Payroll math lives in `src/lib/time/shiftCalc.ts`:
+
+```ts
+shiftMinutes(shift)              // worked minutes, handles overnight shifts
+shiftHours(shift)                // worked minutes / 60
+shiftPay(shift, payRate)         // shiftHours(shift) * payRate
+```
+
+[⬆ back to top](#table-of-contents)
 
 ---
 
-## 3️⃣ ShiftModal
+## Supabase Schema and Migration
 
-### **Features:**
+Tables live in the `rota` Postgres schema:
 
-- Start & End input 
-- Break input (0–120 mins)
-- Auto format time typing:
-  - `900 → 09:00`
-  - `915 → 09:15`
-  - `1330 → 13:30`
-- Snaps to 15-minute increments 
-- Break defaults to 0 if blank 
-- Displays:
-  - `NO BREAK` if 0
-  - `BREAK = 30 mins` if > 0
-- Modal UX:
-  - Click outside to close 
-  - ESC closes 
-  - Clear shift option 
-  - Validation for invalid times
+- `rota.employees` — `id, first_name, last_name, pay_rate, is_active`
+- `rota.shifts` — `id, employee_id, shift_date, start_time, end_time`
 
----
+### One-time migration
 
-# 🎨 Design System
+Run `supabase/migration.sql` once in your Supabase project's SQL editor (Project ▸ SQL
+Editor ▸ New query) before using the app. This session has no DB admin credentials to
+run it automatically — only the anon key. The script is idempotent (safe to re-run) and:
 
-## Glass UI
-- `bg-white/5`
-- `backdrop-blur-xl`
-- `border-white/10`
-- Glow layers using blurred radial gradients 
-- Shadow depth for floating effect
+1. Renames schema `coop` → `rota`, **only if `coop` still exists** (skipped automatically
+   if your schema is already called `rota`).
+2. Adds `employees.pay_rate` (defaults existing rows to `0` — go back into each
+   employee's Edit modal and set their real rate afterwards).
+3. Drops `employees.contracted_minutes`.
+4. Drops `shifts.break_minutes`.
 
-## Background
-- Two-tone gradient:
-```
-from-[#0B1430]
-via-[#070B18]
-to-[#1A0B2E]
-```
+Confirmed working: ran successfully on 2026-07-07, "No rows returned" (expected —
+it's schema/DDL changes, not a data query).
 
-- With:
-
-  - Cyan glow top-left 
-  - Fuchsia glow bottom-right 
-  - Subtle radial grid texture overlay
-
-## Employee LIVE Badge
-
-- Emerald tint 
-- Soft glow 
-- Inline beside employee name 
-- Compact row height
+[⬆ back to top](#table-of-contents)
 
 ---
 
-# 🧮 Calculations
+## Running Locally
 
-## Weekly Total
-
-```
-shiftPaidMinutes(shift)
-```
-
-- Converts HH:MM → minutes 
-- Subtracts break 
-- Aggregates across current week
-
----
-
-# 📱 Responsive Behaviour
-
-Desktop:
-- Full grid 
-- Glass table 
-- Hover +Add indicator 
-- Modal interactions
-
-Mobile:
-
-- Employee cards 
-- Grid of days (2 per row)
-- Functional but refinement deferred
-
----
-
-# ✅ Completed Features
-
-- ✔ Week navigation 
-- ✔ Premium calendar popover (month/year navigation)
-- ✔ Alphabetical employee sorting
-- ✔ Shift modal with validation
-- ✔ Auto time formatting
-- ✔ 15-min snapping
-- ✔ Break capped at 2 hours
-- ✔ Weekly totals calculation
-- ✔ Glass UI theme
-- ✔ Gradient background + depth layers
-- ✔ Compact row spacing
-- ✔ Emerald LIVE badge
-
----
-
-# 🔐 Planned (Not Yet Implemented)
-
-- Authentication (Login / Register)
-- "Remember Me"
-- Inactivity auto logout 
-- Supabase backend 
-- Database persistence 
-- Add/Edit/Delete employees 
-- Contracted hours locked at creation 
-- Autosave to backend 
-- Role-based access
-
---- 
-
-# 📦 Running Locally
-
-```
+```bash
+cd C:\Users\ravil\PycharmProjects\Co-op_WeeklyRota-Dashboard
 npm install
 npm run dev
 ```
 
-Runs at:
+Opens at `http://localhost:5173`. Requires `.env` in the project root with:
 
 ```
-http://localhost:5173
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
 ```
+
+Stop the server with `Ctrl+C` in the terminal.
+
+To check the mobile layout on a phone: connect the phone to the same wifi as your PC,
+find your PC's local IP (`ipconfig` on Windows), then run `npm run dev -- --host` and
+visit `http://<your-pc-ip>:5173` from the phone browser instead of `localhost`.
+
+[⬆ back to top](#table-of-contents)
 
 ---
 
-# 🏗 Next Steps Before Going Live
+## Testing Checklist
 
-## Phase 1 — Data Persistence
+Run through this before trusting the data / deploying:
 
-- Integrate Supabase 
-- Create tables:
-  - users 
-  - employees 
-  - shifts 
-- Implement Row Level Security (RLS)
+1. **Add Employee** — enter name + pay rate.
+2. Click a day cell — enter start/end time. Confirm the earnings preview in the
+   modal matches hours × pay rate.
+3. Save. Confirm the shift cell on the grid shows the time range + £ earned.
+4. Add a second employee, add shifts for them too. Confirm the **Weekly Payout** row
+   appears at the bottom (only shows with 2+ employees).
+5. Click **Export to Excel**. Open the downloaded file and confirm the totals match
+   what's on screen exactly.
+6. Resize the browser narrow (or open on a phone, see above). Confirm the mobile
+   card layout renders cleanly — no overlapping text, all buttons tappable.
+7. Navigate ◀ / ▶ / This Week / calendar popover — confirm shifts persist correctly
+   per week and don't bleed into the wrong week.
+8. Edit and delete an employee — confirm their shifts/totals update or clear correctly.
 
-## Phase 2 — Authentication
-
-- Login page 
-- Register page 
-- Human verification (Turnstile / reCAPTCHA)
-- Remember Me token storage 
-- Session management
-
-## Phase 3 — Employee Management
-
-- Add employee modal 
-- Edit employee 
-- Delete employee 
-- Contracted hours locked 
-- Real database persistence
-
-## Phase 4 — UX Refinement
-
-- Mobile layout redesign 
-- Sticky table header 
-- Weekend highlight tint 
-- Subtle LIVE pulse 
-- Soft row hover lighting
-
-## Phase 5 — Production Setup
-
-- Environment variables (.env)
-- Supabase keys secured 
-- Netlify deploy 
-- Custom domain 
-- HTTPS enforced
+[⬆ back to top](#table-of-contents)
 
 ---
 
-# 🧭 Design Philosophy
+## Deploying to Netlify
 
-This dashboard follows:
+`netlify.toml` is already configured (`npm run build` → publish `dist`, SPA redirect
+to `index.html`). Push to your connected repo/branch and Netlify builds automatically.
+Set the same `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` as environment variables in
+the Netlify site settings.
 
-- Minimal noise 
-- Clean glass UI 
-- Clear hierarchy 
-- Professional retail management feel 
-- Speed over clutter 
-- Desktop-first build strategy
+[⬆ back to top](#table-of-contents)
+
+---
+
+## Design Notes
+
+- Glass UI: `bg-white/5`, `backdrop-blur-xl`, `border-white/10`, soft gradient glow
+  layers, dark base (`#070B18` → `#0B1430` → `#1A0B2E`).
+- Desktop: full data-grid table with sticky-feeling header row, hover states, and a
+  teal "Weekly Payout" summary row when 2+ employees exist.
+- Mobile (`< md`): per-employee cards, 2-up day grid, tap a day to open the shift
+  modal, condensed header controls (icon-only week nav + "Today").
+- Earnings are colour-coded emerald/teal throughout so pay figures are always the
+  visual focal point of a row/card.
+
+[⬆ back to top](#table-of-contents)
+
+---
+
+## Explicitly Removed Features
+
+- Login / sign-out / session management — single-user tool, not needed.
+- Inactivity auto-logout — no session to expire.
+- Contracted hours field — replaced entirely by agreed pay rate + actual hours worked.
+- Shift break field — shifts are now just Start → End.
+- Encryption / Turnstile captcha — no auth surface to protect.
+
+[⬆ back to top](#table-of-contents)
+
+---
+
+## Troubleshooting
+
+**`ERROR: 3F000: schema "coop" does not exist` when running the migration.**
+Your Postgres schema was already named `rota` (not `coop`), so the rename step in
+older versions of `migration.sql` failed. Fixed in the current script — it checks
+whether `coop` exists before attempting the rename, and skips it cleanly if not.
+Pull the latest `supabase/migration.sql` and re-run.
+
+**Employees show £0.00/hr after migrating.**
+Expected — `pay_rate` defaults to `0` for pre-existing rows since the old schema had
+no such column. Open each employee via **Edit** and set their real agreed rate.
+
+[⬆ back to top](#table-of-contents)
 
 ---
 

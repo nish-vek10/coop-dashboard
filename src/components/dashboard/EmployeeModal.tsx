@@ -8,30 +8,21 @@ type Props = {
   initial?: {
     firstName: string;
     lastName: string;
-    contractedMinutes: number;
+    payRate: number;
   };
   onClose: () => void;
-  onSave: (v: { firstName: string; lastName: string; contractedMinutes: number }) => void;
-  onDelete?: () => void; // (we’ll use later for Delete)
+  onSave: (v: { firstName: string; lastName: string; payRate: number }) => void;
+  onDelete?: () => void;
 };
 
-function minutesFromHoursInput(raw: string): number | null {
-  // Accepts: "39", "39.5", "16", "1.25"
+function parsePayRateInput(raw: string): number | null {
+  // Accepts: "5", "5.50", "12,50"
   const s = raw.trim().replace(",", ".");
   if (!s) return null;
   const n = Number(s);
   if (!Number.isFinite(n)) return null;
   if (n < 0) return null;
-  // round to nearest 15 mins
-  const mins = Math.round((n * 60) / 15) * 15;
-  return mins;
-}
-
-function hoursLabelFromMinutes(mins: number) {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (m === 0) return `${h} hrs`;
-  return `${h} hrs ${m} mins`;
+  return Math.round(n * 100) / 100;
 }
 
 export function EmployeeModal({ open, title, initial, onClose, onSave }: Props) {
@@ -43,18 +34,16 @@ export function EmployeeModal({ open, title, initial, onClose, onSave }: Props) 
 
   const [firstName, setFirstName] = useState(initial?.firstName ?? "");
   const [lastName, setLastName] = useState(initial?.lastName ?? "");
-  const [hoursRaw, setHoursRaw] = useState(
-    initial ? String((initial.contractedMinutes / 60).toFixed(2)).replace(/\.00$/, "") : ""
+  const [payRateRaw, setPayRateRaw] = useState(
+    initial ? String(initial.payRate ?? "") : ""
   );
 
   useEffect(() => {
     if (!open) return;
     setFirstName(initial?.firstName ?? "");
     setLastName(initial?.lastName ?? "");
-    setHoursRaw(
-      initial ? String((initial.contractedMinutes / 60).toFixed(2)).replace(/\.00$/, "") : ""
-    );
-  }, [open, initial?.firstName, initial?.lastName, initial?.contractedMinutes]);
+    setPayRateRaw(initial ? String(initial.payRate ?? "") : "");
+  }, [open, initial?.firstName, initial?.lastName, initial?.payRate]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -65,15 +54,16 @@ export function EmployeeModal({ open, title, initial, onClose, onSave }: Props) 
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  const contractedMinutes = useMemo(() => minutesFromHoursInput(hoursRaw), [hoursRaw]);
+  const payRate = useMemo(() => parsePayRateInput(payRateRaw), [payRateRaw]);
 
   const error = useMemo(() => {
     if (!firstName.trim()) return "First name is required.";
     if (!lastName.trim()) return "Last name is required.";
-    if (contractedMinutes == null) return "Contracted hours must be a number (e.g. 39 or 39.5).";
-    if (contractedMinutes > 80 * 60) return "Contracted hours seems too high (max 80).";
+    if (payRate == null) return "Pay rate must be a number (e.g. 5 or 11.50).";
+    if (payRate <= 0) return "Pay rate must be greater than £0.00.";
+    if (payRate > 500) return "Pay rate seems too high (max £500/hr).";
     return "";
-  }, [firstName, lastName, contractedMinutes]);
+  }, [firstName, lastName, payRate]);
 
   if (!open) return null;
 
@@ -116,21 +106,24 @@ export function EmployeeModal({ open, title, initial, onClose, onSave }: Props) 
 
           <div>
             <label className="block text-xs text-slate-300/70 mb-1">
-              Contracted Hours (per week)
+              Agreed Pay Rate (£ per hour)
             </label>
-            <input
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:border-white/25"
-              value={hoursRaw}
-              onChange={(e) => setHoursRaw(e.target.value)}
-              placeholder="e.g. 39 or 39.5"
-              inputMode="decimal"
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
+                £
+              </span>
+              <input
+                className="w-full rounded-lg border border-white/10 bg-white/5 pl-7 pr-3 py-2 text-sm outline-none focus:border-white/25"
+                value={payRateRaw}
+                onChange={(e) => setPayRateRaw(e.target.value)}
+                placeholder="e.g. 11.50"
+                inputMode="decimal"
+              />
+            </div>
             <div className="text-xs text-slate-300/70 mt-1">
-              Stored as minutes:{" "}
+              Used to calculate earnings on every shift:{" "}
               <span className="text-slate-100 font-semibold">
-                {contractedMinutes == null
-                  ? "—"
-                  : `${contractedMinutes} mins (${hoursLabelFromMinutes(contractedMinutes)})`}
+                {payRate == null ? "—" : `£${payRate.toFixed(2)} / hr`}
               </span>
             </div>
           </div>
@@ -157,7 +150,7 @@ export function EmployeeModal({ open, title, initial, onClose, onSave }: Props) 
               onSave({
                 firstName: firstName.trim(),
                 lastName: lastName.trim(),
-                contractedMinutes: contractedMinutes ?? 0,
+                payRate: payRate ?? 0,
               });
             }}
           >

@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Shift } from "../../types/rota";
-import { clampToStep, parseHHMM } from "../../lib/time/shiftCalc";
+import { clampToStep, parseHHMM, shiftHours, shiftPay } from "../../lib/time/shiftCalc";
+import { formatGBP } from "../../lib/time/time";
 
 type Props = {
   open: boolean;
   title: string;
   initial?: Shift;
+  payRate: number;
   onClose: () => void;
   onSave: (shift: Shift) => void;
   onClear?: () => void;
@@ -57,30 +59,15 @@ function normaliseTimeInput(raw: string): string {
   return s;
 }
 
-function breakLabel(mins: number) {
-  if (mins <= 0) return "0 mins";
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m} mins`;
-  if (m === 0) return `${h} hr`;
-  return `${h} hr ${m} mins`;
-}
-
-const BREAK_OPTIONS = Array.from({ length: 120 / STEP + 1 }, (_, i) => i * STEP);
-
-export function ShiftModal({ open, title, initial, onClose, onSave, onClear }: Props) {
+export function ShiftModal({ open, title, initial, payRate, onClose, onSave, onClear }: Props) {
   const [start, setStart] = useState<string>(initial?.start ?? "");
   const [end, setEnd] = useState<string>(initial?.end ?? "");
-  const [breakMinsRaw, setBreakMinsRaw] = useState<string>(
-    initial?.breakMins ? String(initial.breakMins) : ""
-  );
 
   useEffect(() => {
     if (!open) return;
     setStart(initial?.start ?? "");
     setEnd(initial?.end ?? "");
-    setBreakMinsRaw(initial?.breakMins ? String(initial.breakMins) : "");
-  }, [open, initial?.start, initial?.end, initial?.breakMins]);
+  }, [open, initial?.start, initial?.end]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -91,27 +78,24 @@ export function ShiftModal({ open, title, initial, onClose, onSave, onClear }: P
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  const breakMins = useMemo(() => {
-    const n = Number(breakMinsRaw);
-    return Number.isFinite(n) ? n : 0;
-  }, [breakMinsRaw]);
-
   const error = useMemo(() => {
-    if (!start && !end && (!breakMinsRaw || breakMinsRaw === "0")) return "";
-
+    if (!start && !end) return "";
     if (!start || !end) return "Please enter both Start and End.";
 
     const s = parseHHMM(start);
     const e = parseHHMM(end);
     if (s == null || e == null) return "Start/End must be a valid time.";
 
-    if (!Number.isFinite(breakMins)) return "Break must be a number (minutes).";
-    if (breakMins < 0) return "Break cannot be negative.";
-    if (breakMins > 120) return "Break cannot exceed 2 hours.";
-    if (breakMins % 15 !== 0) return "Break must be in 15-minute steps.";
-
     return "";
-  }, [start, end, breakMins, breakMinsRaw]);
+  }, [start, end]);
+
+  const preview = useMemo(() => {
+    if (error || !start || !end) return null;
+    const shift: Shift = { start, end };
+    const hours = shiftHours(shift);
+    const pay = shiftPay(shift, payRate);
+    return { hours, pay };
+  }, [start, end, payRate, error]);
 
   if (!open) return null;
 
@@ -122,9 +106,7 @@ export function ShiftModal({ open, title, initial, onClose, onSave, onClear }: P
       <div className="relative w-full max-w-md rounded-2xl border border-slate-800 bg-[#0B1224] shadow-2xl">
         <div className="px-5 py-4 border-b border-slate-800">
           <div className="text-base font-semibold">{title}</div>
-          <div className="text-xs text-slate-400 mt-0.5">
-            Insert Shift times.
-          </div>
+          <div className="text-xs text-slate-400 mt-0.5">Insert Shift times.</div>
         </div>
 
         <div className="p-5 space-y-4">
@@ -162,39 +144,16 @@ export function ShiftModal({ open, title, initial, onClose, onSave, onClear }: P
             ))}
           </datalist>
 
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Break (minutes)</label>
-            <input
-              className="w-full rounded-lg border border-slate-800 bg-[#070B18] px-3 py-2 text-sm outline-none focus:border-slate-600"
-              value={breakMinsRaw}
-              onChange={(e) => setBreakMinsRaw(e.target.value)}
-              list="rota-breaks"
-              inputMode="numeric"
-              placeholder="e.g 30"
-              onBlur={() => {
-                // If left blank → default 0 mins (but keep input visually blank)
-                if (!breakMinsRaw.trim()) return;
-
-                const n = Number(breakMinsRaw);
-                if (!Number.isFinite(n)) return;
-
-                const snapped = clampToStep(Math.max(0, Math.min(120, n)), STEP);
-                // If user types 0 → keep it blank (still saves as 0)
-                setBreakMinsRaw(snapped === 0 ? "" : String(snapped));
-              }}
-            />
-            <div className="text-xs text-slate-400 mt-1">
-              Display:{" "}
-              <span className="text-slate-200 font-semibold">
-                {breakLabel(Math.max(0, Math.min(120, breakMins || 0)))}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+            <div className="text-xs text-slate-400">Earnings for this shift</div>
+            <div className="mt-0.5 flex items-baseline justify-between">
+              <span className="text-sm text-slate-300">
+                {preview ? `${preview.hours.toFixed(2)} hrs` : "—"} @ £{payRate.toFixed(2)}/hr
+              </span>
+              <span className="text-base font-bold text-emerald-300">
+                {preview ? formatGBP(preview.pay) : "£0.00"}
               </span>
             </div>
-
-            <datalist id="rota-breaks">
-              {BREAK_OPTIONS.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
           </div>
 
           {error ? (
@@ -224,12 +183,11 @@ export function ShiftModal({ open, title, initial, onClose, onSave, onClear }: P
 
             <button
               className="px-4 py-2 rounded-lg bg-slate-200 hover:bg-white text-slate-900 text-sm font-semibold disabled:opacity-50"
-              disabled={!!error}
+              disabled={!!error || !start || !end}
               onClick={() => {
                 onSave({
                   start: normaliseTimeInput(start),
                   end: normaliseTimeInput(end),
-                  breakMins: Number(breakMinsRaw || 0),
                 });
               }}
             >

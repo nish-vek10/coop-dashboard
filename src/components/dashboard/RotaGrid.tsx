@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Employee, Shift, WeekRota } from "../../types/rota";
-import { minutesToHHMM } from "../../lib/time/time";
-import { shiftPaidMinutes } from "../../lib/time/shiftCalc";
+import { minutesToHoursLabel, formatGBP } from "../../lib/time/time";
+import { shiftMinutes, shiftPay } from "../../lib/time/shiftCalc";
 import { ShiftModal } from "./ShiftModal";
 import { supabase } from "../../lib/supabase/client";
 import { EmployeeModal } from "./EmployeeModal";
+import { exportRotaToExcel } from "../../lib/export/exportRota";
 
-type Props = { days: Date[] };
+type Props = { days: Date[]; weekLabel: string };
 
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -18,33 +19,23 @@ function employeeLabel(e: Employee): string {
   return `${e.firstName} ${e.lastName}`;
 }
 
-function breakPretty(mins?: number) {
-  const m = Math.max(0, Number(mins ?? 0));
-  if (m === 0) return "NO BREAK";
-  const h = Math.floor(m / 60);
-  const r = m % 60;
-  if (h === 0) return `BREAK = ${r}m`;
-  if (r === 0) return `BREAK = ${h}h`;
-  return `BREAK = ${h}h ${r}m`;
-}
-
-export function RotaGrid({ days }: Props) {
+export function RotaGrid({ days, weekLabel }: Props) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loadingEmployees, setLoadingEmployees] = useState(true);
 
-  // ✅ Add Employee modal (create)
+  // Add Employee modal (create)
   const [empModalOpen, setEmpModalOpen] = useState(false);
 
-  // ✅ Edit Employee modal state
+  // Edit Employee modal state
   const [editEmpOpen, setEditEmpOpen] = useState(false);
 
-  // ✅ Delete confirm modal state
+  // Delete confirm modal state
   const [deleteEmpOpen, setDeleteEmpOpen] = useState(false);
 
-  // ✅ selected employee (for edit/delete)
+  // selected employee (for edit/delete)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("");
 
-  // ✅ rota cache (NOW hydrated from Supabase shifts each week)
+  // rota cache (hydrated from Supabase shifts each week)
   const [rota, setRota] = useState<WeekRota>({});
 
   const [modal, setModal] = useState<{
@@ -62,12 +53,11 @@ export function RotaGrid({ days }: Props) {
     [employees, selectedEmployeeId]
   );
 
-  // ✅ Extract fetchEmployees so we can refresh after insert/update/delete
   async function fetchEmployees() {
     setLoadingEmployees(true);
 
     const { data, error } = await supabase
-      .schema("coop")
+      .schema("rota")
       .from("employees")
       .select("*")
       .order("first_name", { ascending: true });
@@ -83,7 +73,7 @@ export function RotaGrid({ days }: Props) {
         id: e.id,
         firstName: e.first_name,
         lastName: e.last_name,
-        contractedMinutes: e.contracted_minutes,
+        payRate: Number(e.pay_rate ?? 0),
       })) ?? [];
 
     mapped.sort((a, b) => employeeLabel(a).localeCompare(employeeLabel(b)));
@@ -91,7 +81,6 @@ export function RotaGrid({ days }: Props) {
     setEmployees(mapped);
     setLoadingEmployees(false);
 
-    // if selected employee no longer exists, clear selection
     if (selectedEmployeeId && !mapped.some((x) => x.id === selectedEmployeeId)) {
       setSelectedEmployeeId("");
     }
@@ -102,7 +91,7 @@ export function RotaGrid({ days }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ NEW: Fetch shifts for the visible week and hydrate WeekRota
+  // Fetch shifts for the visible week and hydrate WeekRota
   useEffect(() => {
     if (!days?.length) return;
 
@@ -111,9 +100,9 @@ export function RotaGrid({ days }: Props) {
 
     (async () => {
       const { data, error } = await supabase
-        .schema("coop")
+        .schema("rota")
         .from("shifts")
-        .select("employee_id, shift_date, start_time, end_time, break_minutes")
+        .select("employee_id, shift_date, start_time, end_time")
         .gte("shift_date", start)
         .lte("shift_date", end);
 
@@ -126,11 +115,10 @@ export function RotaGrid({ days }: Props) {
 
       (data ?? []).forEach((r: any) => {
         const empId = String(r.employee_id);
-        const dayKey = String(r.shift_date); // already "YYYY-MM-DD"
+        const dayKey = String(r.shift_date);
         const shift: Shift = {
           start: String(r.start_time ?? ""),
           end: String(r.end_time ?? ""),
-          breakMins: Number(r.break_minutes ?? 0),
         };
         if (!next[empId]) next[empId] = {};
         next[empId]![dayKey] = shift;
@@ -143,6 +131,11 @@ export function RotaGrid({ days }: Props) {
   const currentShift: Shift | undefined =
     modal.open ? rota?.[modal.employeeId]?.[modal.dayKey] : undefined;
 
+  const currentPayRate = useMemo(
+    () => employees.find((x) => x.id === modal.employeeId)?.payRate ?? 0,
+    [employees, modal.employeeId]
+  );
+
   function openModal(employeeId: string, dayKey: string) {
     setModal({ open: true, employeeId, dayKey });
   }
@@ -151,18 +144,16 @@ export function RotaGrid({ days }: Props) {
     setModal({ open: false, employeeId: "", dayKey: "" });
   }
 
-  // ✅ NEW: Persist shift to Supabase then update local cache
   async function saveShift(employeeId: string, dayKey: string, shift: Shift) {
     const payload = {
       employee_id: employeeId,
       shift_date: dayKey, // YYYY-MM-DD
       start_time: shift.start,
       end_time: shift.end,
-      break_minutes: Math.max(0, Number(shift.breakMins ?? 0)),
     };
 
     const { error } = await supabase
-      .schema("coop")
+      .schema("rota")
       .from("shifts")
       .upsert(payload, { onConflict: "employee_id,shift_date" });
 
@@ -182,10 +173,9 @@ export function RotaGrid({ days }: Props) {
     closeModal();
   }
 
-  // ✅ NEW: Delete shift from Supabase then update local cache
   async function clearShift(employeeId: string, dayKey: string) {
     const { error } = await supabase
-      .schema("coop")
+      .schema("rota")
       .from("shifts")
       .delete()
       .eq("employee_id", employeeId)
@@ -210,9 +200,30 @@ export function RotaGrid({ days }: Props) {
   function weeklyTotalMinutes(employeeId: string): number {
     const emp = rota?.[employeeId] ?? {};
     let sum = 0;
-    for (const d of days) sum += shiftPaidMinutes(emp[ymd(d)]);
+    for (const d of days) sum += shiftMinutes(emp[ymd(d)]);
     return sum;
   }
+
+  function weeklyTotalPay(employeeId: string, payRate: number): number {
+    const emp = rota?.[employeeId] ?? {};
+    let sum = 0;
+    for (const d of days) sum += shiftPay(emp[ymd(d)], payRate);
+    return sum;
+  }
+
+  const grandTotalPay = useMemo(
+    () => employees.reduce((sum, e) => sum + weeklyTotalPay(e.id, e.payRate), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [employees, rota, days]
+  );
+
+  const grandTotalMinutes = useMemo(
+    () => employees.reduce((sum, e) => sum + weeklyTotalMinutes(e.id), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [employees, rota, days]
+  );
+
+  const showGrandTotal = employees.length > 1;
 
   const modalEmployee = employees.find((x) => x.id === modal.employeeId);
   const modalDay = modal.open ? new Date(modal.dayKey + "T00:00:00") : null;
@@ -229,13 +240,15 @@ export function RotaGrid({ days }: Props) {
     ? `${employeeLabel(modalEmployee)} • ${modalDayLabel}`
     : `Shift • ${modal.dayKey}`;
 
-  // ✅ LOADING STATE
+  function handleExport() {
+    exportRotaToExcel({ employees, days, rota, weekLabel });
+  }
+
   if (loadingEmployees) {
     return <div className="mt-6 text-slate-400">Loading employees...</div>;
   }
 
   return (
-    // ✅ Make the container tall so the "empty space" is actually clickable
     <div
       className="mt-6 min-h-[70vh]"
       onClick={() => {
@@ -248,23 +261,24 @@ export function RotaGrid({ days }: Props) {
         open={modal.open}
         title={modalTitle}
         initial={currentShift}
+        payRate={currentPayRate}
         onClose={closeModal}
         onSave={(s) => saveShift(modal.employeeId, modal.dayKey, s)}
         onClear={() => clearShift(modal.employeeId, modal.dayKey)}
       />
 
-      {/* ✅ Add Employee Modal (CREATE) */}
+      {/* Add Employee Modal (CREATE) */}
       <EmployeeModal
         open={empModalOpen}
         onClose={() => setEmpModalOpen(false)}
-        onSave={async ({ firstName, lastName, contractedMinutes }) => {
+        onSave={async ({ firstName, lastName, payRate }) => {
           const { error } = await supabase
-            .schema("coop")
+            .schema("rota")
             .from("employees")
             .insert({
               first_name: firstName,
               last_name: lastName,
-              contracted_minutes: contractedMinutes,
+              pay_rate: payRate,
               is_active: true,
             });
 
@@ -274,11 +288,11 @@ export function RotaGrid({ days }: Props) {
           }
 
           setEmpModalOpen(false);
-          await fetchEmployees(); // refresh list
+          await fetchEmployees();
         }}
       />
 
-      {/* ✅ Edit Employee Modal (UPDATE) - reuses EmployeeModal */}
+      {/* Edit Employee Modal (UPDATE) */}
       <EmployeeModal
         open={editEmpOpen}
         onClose={() => setEditEmpOpen(false)}
@@ -287,20 +301,20 @@ export function RotaGrid({ days }: Props) {
             ? {
                 firstName: selectedEmployee.firstName,
                 lastName: selectedEmployee.lastName,
-                contractedMinutes: selectedEmployee.contractedMinutes,
+                payRate: selectedEmployee.payRate,
               }
             : undefined
         }
-        onSave={async ({ firstName, lastName, contractedMinutes }) => {
+        onSave={async ({ firstName, lastName, payRate }) => {
           if (!selectedEmployeeId) return;
 
           const { error } = await supabase
-            .schema("coop")
+            .schema("rota")
             .from("employees")
             .update({
               first_name: firstName,
               last_name: lastName,
-              contracted_minutes: contractedMinutes,
+              pay_rate: payRate,
             })
             .eq("id", selectedEmployeeId);
 
@@ -314,7 +328,7 @@ export function RotaGrid({ days }: Props) {
         }}
       />
 
-      {/* ✅ Delete Confirm Modal */}
+      {/* Delete Confirm Modal */}
       {deleteEmpOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div
@@ -328,7 +342,6 @@ export function RotaGrid({ days }: Props) {
                 Delete Employee from the System?
               </div>
 
-              {/* ✅ Even bigger confirmation text */}
               <div className="mt-2 text-[15px] leading-relaxed font-semibold text-slate-100">
                 This will remove{" "}
                 <span className="text-slate-50 underline decoration-white/15 underline-offset-2">
@@ -357,7 +370,7 @@ export function RotaGrid({ days }: Props) {
                   if (!selectedEmployeeId) return;
 
                   const { error } = await supabase
-                    .schema("coop")
+                    .schema("rota")
                     .from("employees")
                     .delete()
                     .eq("id", selectedEmployeeId);
@@ -379,11 +392,24 @@ export function RotaGrid({ days }: Props) {
         </div>
       )}
 
-      {/* ✅ Top-right controls: Add / Edit / Delete */}
+      {/* Top controls: Export / Add / Edit / Delete */}
       <div
-        className="mb-3 flex items-center justify-end gap-2"
+        className="mb-3 flex flex-wrap items-center justify-end gap-2"
         onClick={(e) => e.stopPropagation()}
       >
+        <button
+          className={[
+            "px-4 py-2 rounded-lg text-sm font-bold",
+            "border border-emerald-300/30 bg-emerald-300/10 text-emerald-100",
+            "hover:bg-emerald-300/15 shadow-[0_0_18px_rgba(16,185,129,0.12)]",
+            "backdrop-blur-xl",
+          ].join(" ")}
+          onClick={handleExport}
+          title="Export this week's rota & payroll to Excel"
+        >
+          ⬇ Export to Excel
+        </button>
+
         <button
           className={[
             "px-4 py-2 rounded-lg text-sm font-bold",
@@ -427,15 +453,14 @@ export function RotaGrid({ days }: Props) {
         </button>
       </div>
 
-      {/* Desktop */}
+      {/* ============ DESKTOP TABLE ============ */}
       <div
         className="hidden md:block rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl overflow-hidden shadow-2xl shadow-black/30"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="grid grid-cols-[260px_140px_140px_repeat(7,minmax(120px,1fr))] border-b border-white/10 bg-white/5 backdrop-blur-xl">
+        <div className="grid grid-cols-[220px_100px_repeat(7,minmax(108px,1fr))_100px_120px] border-b border-white/10 bg-white/5 backdrop-blur-xl">
           <HeaderCell className="pl-5">Employee</HeaderCell>
-          <HeaderCell>Contract</HeaderCell>
-          <HeaderCell>Total</HeaderCell>
+          <HeaderCell center>Rate/hr</HeaderCell>
 
           {days.map((d) => {
             const isWeekend = d.getDay() === 0 || d.getDay() === 6;
@@ -455,10 +480,14 @@ export function RotaGrid({ days }: Props) {
               </HeaderCell>
             );
           })}
+
+          <HeaderCell center>Total</HeaderCell>
+          <HeaderCell center>Total Pay</HeaderCell>
         </div>
 
         {employees.map((e) => {
           const totalMins = weeklyTotalMinutes(e.id);
+          const totalPay = weeklyTotalPay(e.id, e.payRate);
           const selected = selectedEmployeeId === e.id;
 
           return (
@@ -466,7 +495,7 @@ export function RotaGrid({ days }: Props) {
               key={e.id}
               onClick={() => setSelectedEmployeeId(e.id)}
               className={[
-                "grid grid-cols-[260px_140px_140px_repeat(7,minmax(120px,1fr))] border-b border-white/10 last:border-b-0",
+                "grid grid-cols-[220px_100px_repeat(7,minmax(108px,1fr))_100px_120px] border-b border-white/10 last:border-b-0",
                 "cursor-pointer transition-colors",
                 selected ? "bg-white/[0.06]" : "hover:bg-white/[0.03]",
               ].join(" ")}
@@ -486,14 +515,9 @@ export function RotaGrid({ days }: Props) {
                 </div>
               </Cell>
 
-              <Cell>
-                <div className="font-medium">{minutesToHHMM(e.contractedMinutes)}</div>
-                <div className="text-xs text-slate-400">Contracted</div>
-              </Cell>
-
-              <Cell>
-                <div className="font-medium text-slate-200">{minutesToHHMM(totalMins)}</div>
-                <div className="text-xs text-slate-400">This week</div>
+              <Cell className="text-center">
+                <div className="font-medium">{formatGBP(e.payRate)}</div>
+                <div className="text-xs text-slate-400">per hour</div>
               </Cell>
 
               {days.map((d) => {
@@ -505,14 +529,137 @@ export function RotaGrid({ days }: Props) {
                   <ShiftCell
                     key={key}
                     shift={s}
+                    payRate={e.payRate}
                     isWeekend={isWeekend}
                     onClick={() => openModal(e.id, key)}
                   />
                 );
               })}
+
+              <Cell className="text-center">
+                <div className="font-medium text-slate-200">
+                  {minutesToHoursLabel(totalMins)}
+                </div>
+                <div className="text-xs text-slate-400">this week</div>
+              </Cell>
+
+              <Cell className="text-center">
+                <div className="font-bold text-emerald-300">{formatGBP(totalPay)}</div>
+                <div className="text-xs text-slate-400">this week</div>
+              </Cell>
             </div>
           );
         })}
+
+        {showGrandTotal && (
+          <div className="grid grid-cols-[220px_100px_repeat(7,minmax(108px,1fr))_100px_120px] border-t border-white/10 bg-gradient-to-r from-teal-500/15 via-teal-400/10 to-teal-500/15">
+            <Cell className="pl-5 col-span-9 font-bold text-teal-100 tracking-wide">
+              WEEKLY PAYOUT — ALL EMPLOYEES
+            </Cell>
+            <Cell className="text-center">
+              <div className="font-bold text-teal-100">{minutesToHoursLabel(grandTotalMinutes)}</div>
+            </Cell>
+            <Cell className="text-center">
+              <div className="font-extrabold text-teal-100">{formatGBP(grandTotalPay)}</div>
+            </Cell>
+          </div>
+        )}
+      </div>
+
+      {/* ============ MOBILE CARDS ============ */}
+      <div className="md:hidden space-y-3" onClick={(e) => e.stopPropagation()}>
+        {employees.length === 0 ? (
+          <div className="rounded-xl border border-white/10 bg-white/5 p-5 text-sm text-slate-400 text-center">
+            No employees yet. Tap "+ Add Employee" above to get started.
+          </div>
+        ) : null}
+
+        {employees.map((e) => {
+          const totalMins = weeklyTotalMinutes(e.id);
+          const totalPay = weeklyTotalPay(e.id, e.payRate);
+          const selected = selectedEmployeeId === e.id;
+
+          return (
+            <div
+              key={e.id}
+              onClick={() => setSelectedEmployeeId(e.id === selectedEmployeeId ? "" : e.id)}
+              className={[
+                "rounded-xl border bg-white/5 backdrop-blur-xl overflow-hidden shadow-lg shadow-black/20 transition-colors",
+                selected ? "border-amber-300/40 bg-white/[0.07]" : "border-white/10",
+              ].join(" ")}
+            >
+              <div className="px-4 py-3 flex items-center justify-between border-b border-white/10">
+                <div className="min-w-0">
+                  <div className="font-semibold tracking-wide truncate">{employeeLabel(e)}</div>
+                  <div className="text-xs text-slate-400">{formatGBP(e.payRate)} / hr agreed</div>
+                </div>
+                <span className="shrink-0 inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
+                  ● LIVE
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 p-3">
+                {days.map((d) => {
+                  const key = ymd(d);
+                  const s = rota?.[e.id]?.[key];
+                  const has = !!(s?.start && s?.end);
+                  const pay = shiftPay(s, e.payRate);
+                  const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+
+                  return (
+                    <button
+                      key={key}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        openModal(e.id, key);
+                      }}
+                      className={[
+                        "rounded-lg border border-white/10 px-3 py-2 text-left transition-colors",
+                        isWeekend ? "bg-white/[0.04]" : "bg-white/[0.02]",
+                        "hover:bg-white/[0.06]",
+                      ].join(" ")}
+                    >
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        {d.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" })}
+                      </div>
+                      {has ? (
+                        <>
+                          <div className="text-sm font-semibold mt-0.5">
+                            {s!.start} – {s!.end}
+                          </div>
+                          <div className="text-xs text-emerald-300 font-semibold">
+                            {formatGBP(pay)}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-sm text-slate-500 mt-0.5">+ Add</div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="px-4 py-3 border-t border-white/10 flex items-center justify-between bg-white/[0.02]">
+                <div className="text-xs text-slate-400">
+                  Total: <span className="text-slate-200 font-medium">{minutesToHoursLabel(totalMins)}</span>
+                </div>
+                <div className="text-sm font-bold text-emerald-300">{formatGBP(totalPay)}</div>
+              </div>
+            </div>
+          );
+        })}
+
+        {showGrandTotal && (
+          <div className="rounded-xl border border-teal-300/30 bg-gradient-to-r from-teal-500/15 via-teal-400/10 to-teal-500/15 px-4 py-3 flex items-center justify-between">
+            <div className="text-sm font-bold text-teal-100 tracking-wide">
+              WEEKLY PAYOUT — ALL EMPLOYEES
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-teal-100/80">{minutesToHoursLabel(grandTotalMinutes)}</div>
+              <div className="text-base font-extrabold text-teal-100">{formatGBP(grandTotalPay)}</div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -552,14 +699,17 @@ function Cell({
 
 function ShiftCell({
   shift,
+  payRate,
   onClick,
   isWeekend,
 }: {
   shift?: Shift;
+  payRate: number;
   onClick: () => void;
   isWeekend?: boolean;
 }) {
   const has = !!(shift?.start && shift?.end);
+  const pay = shiftPay(shift, payRate);
 
   return (
     <button
@@ -577,9 +727,7 @@ function ShiftCell({
           <div className="text-sm font-semibold">
             {shift!.start} - {shift!.end}
           </div>
-          <div className="text-xs text-slate-400">
-            {breakPretty(shift!.breakMins)}
-          </div>
+          <div className="text-xs text-emerald-300 font-semibold">{formatGBP(pay)}</div>
         </div>
       ) : (
         <div className="h-full flex items-center">

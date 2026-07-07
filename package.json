@@ -1,7 +1,7 @@
 {
-  "name": "co-op-weeklyrota-dashboard",
+  "name": "weekly-rota-payroll-dashboard",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

@@ -1,14 +1,15 @@
+// src/types/rota.ts
+
 export type Employee = {
   id: string;
   firstName: string;
   lastName: string;
-  contractedMinutes: number;
+  payRate: number; // £ per hour, agreed rate keyed in when adding the employee
 };
 
 export type Shift = {
   start?: string; // "HH:MM"
-  end?: string;   // "HH:MM"
-  breakMins?: number;
+  end?: string; // "HH:MM"
 };
 
 export type WeekRota = Record<string, Record<string, Shift>>;
